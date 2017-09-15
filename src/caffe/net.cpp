@@ -91,6 +91,8 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
       << "either 0 or bottom_size times ";
     }
     layers_.push_back(LayerRegistry<Dtype>::CreateLayer(layer_param));
+    this->elapsed_time_.push_back(boost::posix_time::microseconds(0));
+    this->elapsed_btime_.push_back(boost::posix_time::microseconds(0));
     layer_names_.push_back(layer_param.name());
     if (Caffe::root_solver()) {
       LOG(INFO) << "Creating Layer " << layer_param.name();
@@ -177,6 +179,10 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
         blob_need_backward_[top_id_vecs_[layer_id][top_id]] = true;
       }
     }
+
+    this->test_forward_count_ = 0;
+    this->train_forward_count_ = 0;
+    this->train_backward_count_ = 0;
   }
 
   // Go through the net backwards to determine which blobs contribute to the
@@ -572,6 +578,73 @@ Dtype Net<Dtype>::ForwardFromTo(int_tp start, int_tp end) {
 }
 
 template<typename Dtype>
+Dtype Net<Dtype>::ForwardFromToTestPerf(int_tp start, int_tp end) {
+  CHECK_GE(start, 0);
+  CHECK_LT(end, layers_.size());
+  Dtype loss = 0;
+
+  boost::posix_time::ptime t1, t2;
+  this->test_forward_count_++;
+
+  for (int_tp i = start; i <= end; ++i) {
+    for (int_tp c = 0; c < before_forward_.size(); ++c) {
+      before_forward_[c]->run(i);
+    }
+    t1 = boost::posix_time::microsec_clock::local_time();
+    Dtype layer_loss = layers_[i]->Forward(bottom_vecs_[i], top_vecs_[i]);
+    t2 = boost::posix_time::microsec_clock::local_time();
+    this->elapsed_time_[i] += (t2-t1);
+    loss += layer_loss;
+    if (debug_info_) { ForwardDebugInfo(i); }
+    for (int_tp c = 0; c < after_forward_.size(); ++c) {
+      after_forward_[c]->run(i);
+    }
+  }
+  return loss;
+}
+
+template<typename Dtype>
+Dtype Net<Dtype>::ForwardFromToTrainPerf(int_tp start, int_tp end) {
+  CHECK_GE(start, 0);
+  CHECK_LT(end, layers_.size());
+  Dtype loss = 0;
+
+  boost::posix_time::ptime t1, t2;
+  this->train_forward_count_++;
+
+  for (int_tp i = start; i <= end; ++i) {
+    for (int_tp c = 0; c < before_forward_.size(); ++c) {
+      before_forward_[c]->run(i);
+    }
+    t1 = boost::posix_time::microsec_clock::local_time();
+    Dtype layer_loss = layers_[i]->Forward(bottom_vecs_[i], top_vecs_[i]);
+    t2 = boost::posix_time::microsec_clock::local_time();
+    this->elapsed_time_[i] += (t2-t1);
+    loss += layer_loss;
+    if (debug_info_) { ForwardDebugInfo(i); }
+    for (int_tp c = 0; c < after_forward_.size(); ++c) {
+      after_forward_[c]->run(i);
+    }
+  }
+  return loss;
+}
+
+template<typename Dtype>
+void Net<Dtype>::PrintLog() {
+
+  LOG(INFO) << "Layer info";
+  for(int i=0;i<layers_.size();i++) {
+    LOG(INFO) << "LAYER:" << layer_names_[i] << " -- " << elapsed_time_[i].total_microseconds()
+    << " -- " << elapsed_btime_[i].total_microseconds();
+  }
+
+  LOG(INFO) << "test_forward_count_ = " <<this->test_forward_count_;
+  LOG(INFO) << "train_forward_count_ = " <<this->train_forward_count_;
+  LOG(INFO) << "train_backward_count_ = " <<this->train_backward_count_;
+}
+
+
+template<typename Dtype>
 Dtype Net<Dtype>::ForwardFrom(int_tp start) {
   return ForwardFromTo(start, layers_.size() - 1);
 }
@@ -591,6 +664,27 @@ const vector<Blob<Dtype>*>& Net<Dtype>::Forward(Dtype* loss) {
   return net_output_blobs_;
 }
 
+template <typename Dtype>
+const vector<Blob<Dtype>*>& Net<Dtype>::ForwardTestPerf(Dtype* loss) {
+  if (loss != NULL) {
+    *loss = ForwardFromToTestPerf(0, layers_.size() - 1);
+  } else {
+    ForwardFromTo(0, layers_.size() - 1);
+  }
+  return net_output_blobs_;
+}
+
+template <typename Dtype>
+const vector<Blob<Dtype>*>& Net<Dtype>::ForwardTrainPerf(Dtype* loss) {
+  if (loss != NULL) {
+    *loss = ForwardFromToTrainPerf(0, layers_.size() - 1);
+  } else {
+    ForwardFromTo(0, layers_.size() - 1);
+  }
+  return net_output_blobs_;
+}
+
+
 template<typename Dtype>
 const vector<Blob<Dtype>*>& Net<Dtype>::Forward(
     const vector<Blob<Dtype>*> & bottom, Dtype* loss) {
@@ -607,13 +701,21 @@ template<typename Dtype>
 void Net<Dtype>::BackwardFromTo(int_tp start, int_tp end) {
   CHECK_GE(end, 0);
   CHECK_LT(start, layers_.size());
+
+  boost::posix_time::ptime t1, t2;
+  this->train_backward_count_++;
+
   for (int_tp i = start; i >= end; --i) {
     for (int_tp c = 0; c < before_backward_.size(); ++c) {
       before_backward_[c]->run(i);
     }
     if (layer_need_backward_[i]) {
+      t1 = boost::posix_time::microsec_clock::local_time();
+
       layers_[i]->Backward(top_vecs_[i], bottom_need_backward_[i],
                            bottom_vecs_[i]);
+      t2 = boost::posix_time::microsec_clock::local_time();
+    this->elapsed_btime_[i] += (t2-t1);
       if (debug_info_) {
         BackwardDebugInfo(i);
       }

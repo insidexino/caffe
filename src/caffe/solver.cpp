@@ -335,6 +335,8 @@ void Solver<Dtype>::Solve(const char* resume_file) {
   if (param_.test_interval() && iter_ % param_.test_interval() == 0) {
     TestAll();
   }
+  test_nets_[0].get()->PrintLog();
+  net_->PrintLog();
   LOG(INFO) << "Optimization Done.";
 }
 
@@ -377,7 +379,7 @@ void Solver<Dtype>::Test(const int_tp test_net_id) {
 
     Dtype iter_loss;
     const vector<Blob<Dtype>*>& result =
-        test_net->Forward(&iter_loss);
+        test_net->ForwardTestPerf(&iter_loss);
     if (param_.test_compute_loss()) {
       loss += iter_loss;
     }

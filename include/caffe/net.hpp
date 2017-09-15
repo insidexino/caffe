@@ -13,6 +13,7 @@
 #include "caffe/proto/caffe.pb.h"
 #include "device.hpp"
 
+#include "boost/date_time/posix_time/posix_time_types.hpp"
 
 namespace caffe {
 
@@ -39,6 +40,8 @@ class Net {
    *
    */
   const vector<Blob<Dtype>*>& Forward(Dtype* loss = NULL);
+  const vector<Blob<Dtype>*>& ForwardTestPerf(Dtype* loss = NULL);
+  const vector<Blob<Dtype>*>& ForwardTrainPerf(Dtype* loss = NULL);
   /// @brief DEPRECATED; use Forward() instead.
   const vector<Blob<Dtype>*>& ForwardPrefilled(Dtype* loss = NULL) {
     LOG_EVERY_N(WARNING, 1000) << "DEPRECATED: ForwardPrefilled() "
@@ -54,7 +57,13 @@ class Net {
    * the middle may be incorrect if all of the layers of a fan-in are not
    * included.
    */
+  int test_forward_count_;
+  int train_forward_count_;
+  int train_backward_count_;
+  void PrintLog();
   Dtype ForwardFromTo(int_tp start, int_tp end);
+  Dtype ForwardFromToTestPerf(int_tp start, int_tp end);
+  Dtype ForwardFromToTrainPerf(int_tp start, int_tp end);
   Dtype ForwardFrom(int_tp start);
   Dtype ForwardTo(int_tp end);
   /// @brief DEPRECATED; set input blobs then use Forward() instead.
@@ -88,7 +97,7 @@ class Net {
 
   Dtype ForwardBackward() {
     Dtype loss;
-    Forward(&loss);
+    ForwardTrainPerf(&loss);
     Backward();
     return loss;
   }
@@ -299,6 +308,8 @@ class Net {
   Phase phase_;
   /// @brief Individual layers in the net
   vector<shared_ptr<Layer<Dtype> > > layers_;
+  vector<boost::posix_time::microseconds> elapsed_time_;
+  vector<boost::posix_time::microseconds> elapsed_btime_;
   vector<string> layer_names_;
   map<string, int_tp> layer_names_index_;
   vector<bool> layer_need_backward_;
